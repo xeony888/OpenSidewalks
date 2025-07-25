@@ -1,7 +1,248 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <!--<script type="text/javascript">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Sidewalks Overlay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <script>
+    console.log("Script loaded");
+
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        sources: {
+          // 1) OSM raster basemap:
+          osm: {
+            type: 'raster',
+            tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256
+          },
+          // 2) pg_tileserv sidewalks:
+          sidewalks: {
+            type: 'vector',
+            tiles: ['http://127.0.0.1:7800/public.sidewalks/{z}/{x}/{y}.pbf'],
+            minzoom: 0,
+            maxzoom: 22
+          }
+        },
+        layers: [
+          { id: 'osm-base', type: 'raster', source: 'osm' },
+          // {
+          //     id: 'sidewalks-points-all',
+          //     type: 'circle',
+          //     source: 'sidewalks',
+          //     'source-layer': 'public.sidewalks',
+          //     paint: {
+          //         'circle-radius': 8,
+          //         'circle-color': '#ff0000'
+          //     }
+          // },
+          // {
+          //     id: 'sidewalks-lines-all',
+          //     type: 'line',
+          //     source: 'sidewalks',
+          //     'source-layer': 'public.sidewalks',
+          //     paint: {
+          //         'line-color': '#0000ff',
+          //         'line-width': 6,
+          //         'line-opacity': 0.8
+          //     }
+          // },
+          {
+            id: 'sidewalk-lines',
+            type: 'line',
+            source: 'sidewalks',
+            'source-layer': 'public.sidewalks',
+            filter: [
+              "any",
+              ['==', ['get', 'highway'], 'footway'],
+              ['==', ['get', 'footway'], 'sidewalk'],
+              ['==', ['get', 'highway'], 'sidewalk'],
+              ['==', ['get', 'highway'], 'pedestrian'],
+              ['==', ['get', 'highway'], 'path'],
+            ],
+            paint: {
+              'line-color': '#838585',   // gray
+              'line-width': 4,
+              'line-opacity': 0.8
+            }
+          },
+          {
+            id: 'steps-lines',
+            type: 'line',
+            source: 'sidewalks',
+            'source-layer': 'public.sidewalks',
+            filter: [
+              "any",
+              ['==', ['get', 'footway'], 'steps']
+            ],
+            paint: {
+              'line-color': '#05f6fa',
+              'line-width': 4,
+              'line-opacity': 0.8
+            }
+          },
+          {
+            id: 'crosswalk-lines',
+            type: 'line',
+            source: 'sidewalks',
+            'source-layer': 'public.sidewalks',
+            filter: [
+              'any',
+              ['==', ['get', 'highway'], 'crossing'],
+              ['==', ['get', 'footway'], 'crossing'],
+            ],
+            paint: {
+              'line-color': '#ff00ff',
+              'line-width': 3,
+              'line-dasharray': [2, 2],
+              'line-opacity': 0.9
+            }
+          },
+          {
+            id: 'curb-lines',
+            type: 'line',
+            source: 'sidewalks',
+            'source-layer': 'public.sidewalks',
+            filter: ['==', ['get', 'kerb'], 'yes'],
+            paint: {
+              'line-color': '#0000ff',    // blue
+              'line-width': 2,
+              'line-opacity': 1.0
+            }
+          }
+        ]
+      }
+    });
+    const LAYER_NAMES = ["sidewalk-lines", "steps-lines", "crosswalk-lines", "curb-lines"]
+    LAYER_NAMES.forEach(layer => {
+      map.on('mouseenter', layer, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', layer, () => {
+        map.getCanvas().style.cursor = '';
+      });
+    });
+
+    // on click, show a Popup with all properties
+    LAYER_NAMES.forEach(layer => {
+      map.on('click', layer, (e) => {
+        // pick the topmost feature
+        const feat = e.features[0];
+        const props = feat.properties;
+
+        // build an HTML table (or simple list) of key/value pairs
+        const html = Object.entries(props)
+          .map(([k, v]) => `<tr><th style="text-align:left;padding:2px">${k}</th><td style="padding:2px">${v}</td></tr>`)
+          .join('');
+
+        new maplibregl.Popup({ offset: 10 })
+          .setLngLat(e.lngLat)
+          .setHTML(`<table>${html}</table>`)
+          .addTo(map);
+      });
+    });
+    map.on('style.load', () => {
+      console.log('Layers in style:', map.getStyle().layers.map(l => l.id));
+    });
+    map.on('idle', () => {
+      const raw = map.querySourceFeatures('sidewalks', {
+        sourceLayer: 'public.sidewalks'
+      });
+      const kerbTypes = Array.from(
+        new Set(
+          raw
+            .map(f => f.properties.kerb)
+            .filter(v => v !== undefined && v !== null && v !== '')
+        )
+      );
+      console.log('Kerb types in your data:', kerbTypes);
+    });
+    // map.on('idle', () => {
+    //     const raw = map.querySourceFeatures('sidewalks', {
+    //         sourceLayer: 'public.sidewalks'
+    //     });
+
+    //     // dedupe by JSON string of the entire properties object
+
+    //     const highwayMap = new Map();
+    //     const footwayMap = new Map()
+    //     const uniqueProps = [];
+    //     raw.forEach(f => {
+    //         const highway = f.properties.highway
+    //         const footway = f.properties.footway
+    //         if (!highwayMap.has(highway)) {
+    //             highwayMap.set(highway, 1);
+    //             uniqueProps.push(f.properties);
+    //         } else {
+    //             let count = highwayMap.get(highway)
+    //             highwayMap.set(highway, count + 1)
+    //         }
+    //         if (!footwayMap.has(footway)) {
+    //             footwayMap.set(footway, 1)
+    //         } else {
+    //             let count = footwayMap.get(footway)
+    //             footwayMap.set(footway, count + 1)
+    //         }
+    //     });
+
+    //     console.log(`Found ${raw.length} total features, ${uniqueProps.length} unique:`);
+    //     console.table(uniqueProps);
+    //     console.table(Array.from(highwayMap).map(i => {
+    //         return { name: i[0], count: i[1], type: "highway" }
+    //     }))
+    //     console.table(Array.from(footwayMap).map(i => {
+    //         return { name: i[0], count: i[1], type: "footway" }
+    //     }))
+    // });
+    map.on('load', () => {
+      console.log('Map loaded, fitting to data bounds');
+      // use the bounds from pg_tileserv metadata
+      map.fitBounds([
+        [-124.7370453, 31.3052711],
+        [-102.0513000, 49.0475655]
+      ], { padding: 20 });
+    });
+
+    map.on('error', e => console.error('MapLibre error:', e.error));
+    map.on('sourcedata', e => {
+      if (e.sourceDataType === 'tile') {
+        console.log('Tile', e.tile.coord, '->', e.tile.state);
+      }
+    });
+  </script>
+</body>
+
+</html>
+
+
+
+
+<!-- <!DOCTYPE html>
+<html> -->
+<!-- <head> -->
+<!--<script type="text/javascript">
       (function(window, document, dataLayerName, id) {
       window[dataLayerName]=window[dataLayerName]||[],window[dataLayerName].push({start:(new Date).getTime(),event:"stg.start"});var scripts=document.getElementsByTagName('script')[0],tags=document.createElement('script');
       function stgCreateCookie(a,b,c){var d="";if(c){var e=new Date;e.setTime(e.getTime()+24*c*60*60*1e3),d="; expires="+e.toUTCString();f="; SameSite=Strict"}document.cookie=a+"="+b+d+f+"; path=/"}
@@ -11,8 +252,8 @@
       !function(a,n,i){a[n]=a[n]||{};for(var c=0;c<i.length;c++)!function(i){a[n][i]=a[n][i]||{},a[n][i].api=a[n][i].api||function(){var a=[].slice.call(arguments,0);"string"==typeof a[0]&&window[dataLayerName].push({event:n+"."+i+":"+a[0],parameters:[].slice.call(arguments,1)})}}(i[c])}(window,"ppms",["tm","cm"]);
       })(window, document, 'dataLayer', '0245a355-96b9-47f5-997e-8cafd843c18a');
     </script>-->
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-VB5V88HCS8"></script>
+<!-- Google tag (gtag.js) -->
+<!-- <script async src="https://www.googletagmanager.com/gtag/js?id=G-VB5V88HCS8"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
@@ -79,5 +320,6 @@
     <script type="module" src="js/sidebarController.js"></script>
     <script type="module" src="js/controlsController.js"></script>
     <script type="module" src="js/hashController.js"></script>
-  </body>
-</html>
+  </body> -->
+
+<!-- </html> -->
